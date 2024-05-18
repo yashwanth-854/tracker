@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-
+import axios from "axios";
 
 
 const LocationScreen = () => {
@@ -111,10 +111,20 @@ const LocationScreen = () => {
   const handleStop = async () => {
     setIsRunning(false); // Stop the background task
     retrieveLocationData();
-    // storeRetrievedData(locationData);
-    // Retrieve stored location data
-  };
+    console.log(locationData);
+    axios.post('http://10.10.8.157:8080/location', locationData)
+      .then(response => {
+        console.log('Location data sent successfully:', response.data);
+      })
+      .catch(error => {
+        console.error('Error sending location data:', error);
+      });
+  }
+  // storeRetrievedData(locationData);
+  // Retrieve stored location data
+ 
 
+  
   // Render function for each item in the FlatList
   const renderItem = ({ item }) => (
     <View style={styles.item}>

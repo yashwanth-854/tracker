@@ -1,7 +1,7 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
 import { StyleSheet, Text, View } from "react-native";
-import StackNavigation from "./navigation/StackNavigation";
+import StackNavigation from './Navigation/StackNavigation';
 
 export default function App() {
   const Stack = createNativeStackNavigator();
