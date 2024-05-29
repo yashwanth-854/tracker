@@ -10,21 +10,20 @@ import {
   TextInput,
   Image,
   TouchableOpacity,
+  ToastAndroid,
+  Platform,
 } from "react-native";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import * as Linking from "expo-linking";
 import * as Cellular from "expo-cellular";
-const Vonage = require("@vonage/server-sdk").Vonage;
-
-const vonage = new Vonage({
-  apiKey: "2d5152c1",
-  apiSecret: "aYVIe0NtZJZs0ASE",
-});
+import * as TaskManager from "expo-task-manager"; // Import TaskManager for background tasks
 const img = require("./nfc.png");
 const img1 = require("./n.png");
 const img2 = require("./gov.png");
+
+const LOCATION_TASK_NAME = "background-location-task";
 
 const LocationScreen = () => {
   const [location, setLocation] = useState(null);
@@ -35,12 +34,55 @@ const LocationScreen = () => {
   const [showNumbersModal, setShowNumbersModal] = useState(false);
   const [selectedNumber, setSelectedNumber] = useState(""); // State to store selected number
   const [phoneNumberInput, setPhoneNumberInput] = useState(""); // State to store phone number input
+  const [allData, setAllData] = useState([]);
+  const [timeIntervalInput, setTimeIntervalInput] = useState();
+  const [timeInterval, setTimeInterval] = useState(0);
+  const [configured, setConfigured] = useState(false);
 
   useEffect(() => {
     checkSignal();
-    getQueueCount(); // Get initial queue count
+    // getLocation();
+    // getQueueCount(); // Get initial queue count
   }, []);
+  // useEffect(() => {
+  //   // checkPermissions(); // Check permissions when component mounts
+  //   // getQueueCount();
+  //   // Start background task if supported
+  //   if (Platform.OS === "android") {
+  //     startLocationTask();
+  //   }
+  //   return () => {
+  //     // Clean up background task when component unmounts
+  //     if (Platform.OS === "android") {
+  //       stopLocationTask();
+  //     }
+  //   };
+  // }, []);
 
+  // const startLocationTask = async () => {
+  //   await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+  //     accuracy: Location.Accuracy.Balanced,
+  //   });
+  //   console.log("Background location task started");
+  // };
+
+  // const stopLocationTask = async () => {
+  //   await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+  //   console.log("Background location task stopped");
+  // };
+
+  // // Define background location task
+  // TaskManager.defineTask(LOCATION_TASK_NAME, ({ data, error }) => {
+  //   if (error) {
+  //     console.error("Location task error:", error);
+  //     return;
+  //   }
+  //   if (data) {
+  //     const { locations } = data;
+  //     console.log("Background location update:", locations);
+  //     // Process location updates here
+  //   }
+  // });
   const handleLogout = () => {
     // Implement your logout logic here
     // For example, navigate to the logout screen or clear authentication tokens
@@ -49,6 +91,7 @@ const LocationScreen = () => {
   const checkSignal = async () => {
     const networkCode = await Cellular.getMobileNetworkCodeAsync();
     setSimState(networkCode);
+    console.log("1" + networkCode);
   };
 
   const getQueueCount = async () => {
@@ -90,15 +133,22 @@ const LocationScreen = () => {
   };
 
   const handleStart = async () => {
-    await AsyncStorage.removeItem("locationQueue");
-    getLocation();
-    setIsRunning(true);
-    console.log("Started");
+    if (configured) {
+      setAllData([]);
+      await AsyncStorage.removeItem("locationQueue");
+      getLocation();
+      setIsRunning(true);
+      console.log("Started");
+    } else {
+      Alert.alert(
+        "You need to configure phone number and time interval before starting"
+      );
+    }
   };
 
   const getLocation = async () => {
     try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
+      let { status } = await Location.requestForegroundPermissionsAsync(); // Requests location permissions
       if (status !== "granted") {
         console.error("Permission to access location was denied");
         return;
@@ -106,33 +156,58 @@ const LocationScreen = () => {
 
       let location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Highest,
-      });
-      setLocation(location);
+      }); // Gets the current location with high accuracy
+      setLocation(location); // Sets the location state with the obtained location data
+      console.log(location);
       const isoString = new Date().toISOString();
       const [da, ti] = isoString.split("T");
-      const time = `${da} ${ti}`;
+      const time = `${da} ${ti}`; // Formats the current date and time
 
-      checkSignal();
+      await checkSignal(); // Checks the cellular signal state
+
+      const currentLocationData = {
+        time: time,
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      };
+      // encryption(currentLocationData);
+
+      setAllData((prevData) => [...prevData, currentLocationData]);
+
       if (simState != null) {
-        retrieveLocationData();
-        console.log(locationData.length);
-        if (locationData.length != 0) {
+        await retrieveLocationData(); // If the device has a signal, retrieves any stored location data
+        if (locationData.length > 0) {
           console.log("Sending Stored Data");
+          // handleSend(locationData)
+          // axios
+          //   .post("http://10.10.8.157:8000/location", locationData)
+          //   .then((response) => {
+          //     console.log(
+          //       "Stored location data sent successfully:",
+          //       response.data
+          //     );
+          //     setLocationData([]); // Clear the stored location data
+          //     setQueueCount(0); // Reset the queue count
+          //   })
+          //   .catch((error) => {
+          //     console.error("Error sending stored location data:", error);
+          //   });
         }
-        const l = [
-          {
-            time: time,
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-          },
-        ];
-        setLocationData(l);
+        setLocationData([currentLocationData]); // Sets the location data state with the current location
+        // handleSend(locationData)
+        // axios
+        //   .post("http://10.10.8.157:8000/location", [currentLocationData])
+        //   .then((response) => {
+        //     console.log(
+        //       "Current location data sent successfully:",
+        //       response.data
+        //     );
+        //   })
+        //   .catch((error) => {
+        //     console.error("Error sending current location data:", error);
+        //   });
       } else {
-        storeLocationData({
-          time: time,
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        });
+        await storeLocationData(currentLocationData); // If no signal, stores the current location data in AsyncStorage
       }
     } catch (error) {
       console.error("Error getting location:", error);
@@ -143,25 +218,132 @@ const LocationScreen = () => {
     let interval;
     if (isRunning) {
       interval = setInterval(() => {
-        getLocation();
-      }, 500);
+        getLocation(); // Calls getLocation function at the specified interval
+      }, 60 * 1000 * timeInterval); // Set interval to 5 seconds
     }
 
-    return () => clearInterval(interval);
+    return () => clearInterval(interval); // Clears the interval when the component unmounts or isRunning changes
   }, [isRunning]);
 
   const handleStop = async () => {
     setIsRunning(false);
     console.log("Stopped");
-    console.log(locationData);
-    axios
-      .post("http://10.10.8.157:8000/location", locationData)
-      .then((response) => {
-        console.log("Location data sent successfully:", response.data);
-      })
-      .catch((error) => {
-        console.error("Error sending location data:", error);
-      });
+    // console.log(locationData);
+    // axios
+    //   .post("http://10.10.8.157:8000/location", locationData)
+    //   .then((response) => {
+    //     console.log("Location data sent successfully:", response.data);
+    //   })
+    //   .catch((error) => {
+    //     console.error("Error sending location data:", error);
+    //   });
+  };
+
+  const encryption = async (data) => {
+    // Parse the date and time from the provided data
+    const date = new Date(data.time);
+
+    // Extract individual components
+    const y = String(date.getUTCFullYear()).padStart(2, "0");
+    const year = y.slice(2);
+    const month = String(date.getUTCMonth() + 1).padStart(2, "0"); // getUTCMonth is zero-based
+    const day = String(date.getUTCDate()).padStart(2, "0");
+    const hours = String(date.getUTCHours()).padStart(2, "0");
+    const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+    const seconds = String(date.getUTCSeconds()).padStart(2, "0");
+
+    // Extract latitude and longitude
+    const latitude = data.latitude.toFixed(6); // Assuming you want to keep up to 6 decimal places
+    const longitude = data.longitude.toFixed(6); // Assuming you want to keep up to 6 decimal places
+
+    const latitude1 = latitude.replace(".", "");
+    const longitude1 = longitude.replace(".", "");
+
+    const yearHex = parseInt(year).toString(16).padStart(2, "0").toUpperCase();
+    const monthHex = parseInt(month)
+      .toString(16)
+      .padStart(2, "0")
+      .toUpperCase();
+    const dayHex = parseInt(day).toString(16).padStart(2, "0").toUpperCase();
+    const hoursHex = parseInt(hours)
+      .toString(16)
+      .padStart(2, "0")
+      .toUpperCase();
+    const minutesHex = parseInt(minutes)
+      .toString(16)
+      .padStart(2, "0")
+      .toUpperCase();
+    const secondsHex = parseInt(seconds)
+      .toString(16)
+      .padStart(2, "0")
+      .toUpperCase();
+    const latitudeHex = parseInt(latitude1)
+      .toString(16)
+      .padStart(8, "0")
+      .toUpperCase();
+    const longitudeHex = parseInt(longitude1)
+      .toString(16)
+      .padStart(8, "0")
+      .toUpperCase();
+
+    const result1 = `${day}-${month}-${year} ${hours}:${minutes}:${seconds} ${latitude1},${longitude1}`;
+    console.log(result1);
+    // Create the string with the desired format
+    const result = `${dayHex}-${monthHex}-${yearHex} ${hoursHex}:${minutesHex}:${secondsHex} ${latitudeHex},${longitudeHex}`;
+    console.log(result);
+    let encryptedString = ":000002";
+    encryptedString =
+      encryptedString +
+      dayHex +
+      monthHex +
+      yearHex +
+      hoursHex +
+      minutesHex +
+      secondsHex +
+      latitudeHex +
+      longitudeHex +
+      "4E" +
+      "45" +
+      "00000000";
+    console.log(encryptedString);
+    console.log("1");
+    return encryptedString;
+  };
+
+  const tempHandleSend = async () => {
+    getLocation();
+    let location = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Highest,
+    });
+    console.log(location);
+    const isoString = new Date().toISOString();
+    const [da, ti] = isoString.split("T");
+    const time = `${da} ${ti}`; // Formats the current date and time
+    const currentLocationData = {
+      time: time,
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+    };
+    console.log(currentLocationData);
+    // Assuming encryption(currentLocationData) returns a JSON object
+    const es = encryption(currentLocationData);
+    console.log(es); // Log the encrypted data object
+
+    const phoneNumber = selectedNumber;
+    console.log(phoneNumber); // Log the selected phone number
+
+    const message = JSON.stringify(es);
+    console.log(message); // Log the JSON stringified encrypted data
+
+    // Access the third item in the original JSON object, not the string
+    const keys = Object.keys(es);
+    const thirdItem = es[keys[2]]; // Get the value of the third key in the original object
+    console.log(thirdItem); // Log the third item value
+
+    const url = `sms:${phoneNumber}?body=${encodeURIComponent(thirdItem)}`;
+    Linking.openURL(url).catch((err) =>
+      console.error("Error opening SMS app:", err)
+    );
   };
 
   const handleSend = async () => {
@@ -170,21 +352,27 @@ const LocationScreen = () => {
     // "+91 9618026156";
     const message = JSON.stringify(locationData);
     const url = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
+
     checkSignal();
-    await vonage.sms
-      .send({ to, from, text })
-      .then((resp) => {
-        console.log("Message sent successfully");
-        console.log(resp);
-      })
-      .catch((err) => {
-        console.log("There was an error sending the messages.");
-        console.error(err);
-      });
     if (simState != null) {
-      // Linking.openURL(url).catch((err) =>
-      //   console.error("Error opening SMS app:", err)
-      // );
+      Linking.openURL(url).catch((err) =>
+        console.error("Error opening SMS app:", err)
+      );
+      console.log("signal yes");
+    } else {
+      Alert.alert("NO SIGNAL");
+    }
+  };
+  const handleSendAll = async () => {
+    const phoneNumber = selectedNumber;
+    // "+91 9618026156";
+    const message = JSON.stringify(allData);
+    const url = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
+    checkSignal();
+    if (simState != null) {
+      Linking.openURL(url).catch((err) =>
+        console.error("Error opening SMS app:", err)
+      );
       console.log("signal yes");
     } else {
       Alert.alert("NO SIGNAL");
@@ -203,8 +391,17 @@ const LocationScreen = () => {
     setPhoneNumberInput(text);
   };
 
+  const handleTimeInterval = (text) => {
+    setTimeIntervalInput(text);
+  };
+
   const savePhoneNumber = () => {
     setSelectedNumber(phoneNumberInput);
+    setTimeInterval(timeIntervalInput);
+    if (selectedNumber != "" && timeInterval != 0) {
+      setConfigured(true);
+    }
+    ToastAndroid.show("Phone number saved", ToastAndroid.SHORT);
     setShowNumbersModal(false);
   };
 
@@ -215,19 +412,9 @@ const LocationScreen = () => {
       <Text>Longitude: {item.longitude}</Text>
     </View>
   );
-  // const renderItem1 = ({ item }) => (
-  //   <TouchableOpacity onPress={() => selectNumber(item)}>
-  //     <View style={styles.item}>
-  //       <Text>{item}</Text>
-  //     </View>
-  //   </TouchableOpacity>
-  // );
 
   return (
     <View style={styles.mainContainer}>
-      {/* <View style={styles.taskbar}>
-        <Text style={styles.taskbarText}> </Text>
-      </View> */}
       <Modal
         visible={showNumbersModal}
         animationType="slide"
@@ -241,6 +428,12 @@ const LocationScreen = () => {
               onChangeText={handlePhoneNumberChange}
               value={phoneNumberInput}
               placeholder="Enter phone number"
+            />
+            <TextInput
+              style={styles.input}
+              onChangeText={handleTimeInterval}
+              value={timeIntervalInput}
+              placeholder="Enter Time in minutes"
             />
             <View
               style={{ flexDirection: "row", justifyContent: "space-evenly" }}
@@ -281,22 +474,31 @@ const LocationScreen = () => {
         </View>
       </View>
       <View style={styles.taskbar1}>
-        {/* <View style={{ margin: 10 }}> */}
-        <Text style={{ color: "white" }}>
-          Configure ID : {phoneNumberInput}
-        </Text>
-        {/* </View> */}
+        {selectedNumber ? (
+          <Text style={{ color: "white" }}>Configure ID: {selectedNumber}</Text>
+        ) : null}
         <Text style={styles.taskbarText}> </Text>
-        <TouchableOpacity onPress={handleLogout}>
+        {timeInterval ? (
+          <Text style={{ color: "white" }}>Time : {timeInterval} min</Text>
+        ) : null}
+        {/* <TouchableOpacity onPress={handleLogout}>
           <Text style={styles.logoutButton}>Logout</Text>
-        </TouchableOpacity>
+        </TouchableOpacity>timeInterval */}
       </View>
 
       <View style={styles.container}>
         <View style={styles.statusContainer}>
           <View style={{ marginHorizontal: 10 }}>
-            <Text style={styles.statusText}>
-              Status: {isRunning ? "Running" : "Stopped"}
+            <Text style={styles.statusText}>Status:</Text>
+          </View>
+          <View>
+            <Text
+              style={[
+                styles.statusText,
+                { color: isRunning ? "red" : "black" },
+              ]}
+            >
+              {isRunning ? "Running" : "Stopped"}
             </Text>
           </View>
           <View style={{ marginHorizontal: 10 }}>
@@ -322,14 +524,14 @@ const LocationScreen = () => {
             />
           </View>
           <View style={styles.buttonContainer}>
-            <Button title="Send" onPress={handleSend} />
+            <Button title="Send" onPress={tempHandleSend} />
           </View>
         </View>
       </View>
       <View style={styles.listContainer}>
-        {locationData.length > 0 && (
+        {allData.length > 0 && (
           <FlatList
-            data={locationData}
+            data={allData}
             renderItem={renderItem}
             keyExtractor={(item, index) => index.toString()}
           />
@@ -375,17 +577,16 @@ const styles = StyleSheet.create({
   },
   statusContainer: {
     marginBottom: 10,
-    // alignItems: "center",
     flexDirection: "row",
     justifyContent: "flex-end",
   },
   statusText: {
+    //backgroundColor: "#FF0000",
     fontSize: 18,
     fontWeight: "bold",
     marginBottom: 5,
   },
   queueText: {
-    // Add styles for queue text
     fontSize: 16,
     marginBottom: 5,
   },
