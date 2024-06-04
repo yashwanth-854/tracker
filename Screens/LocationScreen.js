@@ -17,6 +17,7 @@ import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import * as Linking from "expo-linking";
+import * as Network from "expo-network";
 import * as Cellular from "expo-cellular";
 import * as TaskManager from "expo-task-manager"; // Import TaskManager for background tasks
 const img = require("./nfc.png");
@@ -29,114 +30,133 @@ const LocationScreen = () => {
   const [location, setLocation] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   const [locationData, setLocationData] = useState([]);
-  const [simState, setSimState] = useState(null);
+  const [networkState, setNetworkState] = useState(true);
   const [queueCount, setQueueCount] = useState("0"); // Add state for queue count
   const [showNumbersModal, setShowNumbersModal] = useState(false);
-  const [selectedNumber, setSelectedNumber] = useState(""); // State to store selected number
+  const [selectedNumber, setSelectedNumber] = useState("---"); // State to store selected number
   const [phoneNumberInput, setPhoneNumberInput] = useState(""); // State to store phone number input
   const [allData, setAllData] = useState([]);
   const [timeIntervalInput, setTimeIntervalInput] = useState();
-  const [timeInterval, setTimeInterval] = useState(0);
+  const [timeInterval, setTimeInterval] = useState("---");
   const [configured, setConfigured] = useState(false);
-
+  const [lastSent, setLastSent] = useState("---");
+  const [cnt, setCnt] = useState(1);
   useEffect(() => {
-    checkSignal();
+    getQueueCount();
     // getLocation();
     // getQueueCount(); // Get initial queue count
   }, []);
-  // useEffect(() => {
-  //   // checkPermissions(); // Check permissions when component mounts
-  //   // getQueueCount();
-  //   // Start background task if supported
-  //   if (Platform.OS === "android") {
-  //     startLocationTask();
-  //   }
-  //   return () => {
-  //     // Clean up background task when component unmounts
-  //     if (Platform.OS === "android") {
-  //       stopLocationTask();
-  //     }
-  //   };
-  // }, []);
 
-  // const startLocationTask = async () => {
-  //   await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-  //     accuracy: Location.Accuracy.Balanced,
-  //   });
-  //   console.log("Background location task started");
-  // };
+  class Queue {
+    constructor() {
+      this.items = {};
+      this.frontIndex = 0;
+      this.backIndex = 0;
+    }
 
-  // const stopLocationTask = async () => {
-  //   await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
-  //   console.log("Background location task stopped");
-  // };
+    enqueue(item) {
+      this.items[this.backIndex] = item;
+      this.backIndex++;
+      return item + " inserted";
+    }
 
-  // // Define background location task
-  // TaskManager.defineTask(LOCATION_TASK_NAME, ({ data, error }) => {
-  //   if (error) {
-  //     console.error("Location task error:", error);
-  //     return;
-  //   }
-  //   if (data) {
-  //     const { locations } = data;
-  //     console.log("Background location update:", locations);
-  //     // Process location updates here
-  //   }
-  // });
+    dequeue() {
+      if (this.frontIndex === this.backIndex) {
+        return null;
+      }
+      const item = this.items[this.frontIndex];
+      delete this.items[this.frontIndex];
+      this.frontIndex++;
+      return item;
+    }
+
+    peek() {
+      if (this.frontIndex === this.backIndex) {
+        return null;
+      }
+      return this.items[this.frontIndex];
+    }
+
+    printQueue() {
+      let str = "";
+      for (let i = this.frontIndex; i < this.backIndex; i++) {
+        str += this.items[i] + " ";
+      }
+      return str;
+    }
+
+    length() {
+      return this.backIndex - this.frontIndex;
+    }
+
+    isEmpty() {
+      return this.length() === 0;
+    }
+  }
+
+  const queue = new Queue();
   const handleLogout = () => {
     // Implement your logout logic here
     // For example, navigate to the logout screen or clear authentication tokens
   };
 
-  const checkSignal = async () => {
-    const networkCode = await Cellular.getMobileNetworkCodeAsync();
-    setSimState(networkCode);
-    console.log("1" + networkCode);
+  const checkNetworkState = async () => {
+    try {
+      let state1 = await Network.isAirplaneModeEnabledAsync();
+      let state2 = await Cellular.getMobileNetworkCodeAsync();
+      console.log(state1);
+      console.log(state2);
+      if (state1 != true && state2 != null) {
+        setNetworkState(true);
+        return true;
+      } else {
+        setNetworkState(false);
+        return false;
+      }
+    } catch (error) {
+      console.error("Error checking network state:", error);
+    }
   };
 
   const getQueueCount = async () => {
     try {
-      const existingData = await AsyncStorage.getItem("locationQueue");
-      let locationQueue = existingData ? JSON.parse(existingData) : [];
-      setQueueCount(locationQueue.length);
+      setQueueCount(queue.length());
     } catch (error) {
       console.error("Error getting queue count:", error);
     }
   };
 
-  const storeLocationData = async (data) => {
-    try {
-      const existingData = await AsyncStorage.getItem("locationQueue");
-      let locationQueue = existingData ? JSON.parse(existingData) : [];
-      locationQueue.push(data);
-      await AsyncStorage.setItem(
-        "locationQueue",
-        JSON.stringify(locationQueue)
-      );
-      setQueueCount(locationQueue.length); // Update queue count
-    } catch (error) {
-      console.error("Error storing location data:", error);
-    }
-  };
+  // const storeLocationData = async (data) => {
+  //   try {
+  //     const existingData = await AsyncStorage.getItem("locationQueue");
+  //     let locationQueue = existingData ? JSON.parse(existingData) : [];
+  //     locationQueue.push(data);
+  //     await AsyncStorage.setItem(
+  //       "locationQueue",
+  //       JSON.stringify(locationQueue)
+  //     );
+  //     setQueueCount(locationQueue.length); // Update queue count
+  //   } catch (error) {
+  //     console.error("Error storing location data:", error);
+  //   }
+  // };
 
-  const retrieveLocationData = async () => {
-    try {
-      const data = await AsyncStorage.getItem("locationQueue");
-      if (data) {
-        setLocationData(JSON.parse(data));
-        await AsyncStorage.removeItem("locationQueue");
-        setQueueCount(0); // Update queue count
-      }
-    } catch (error) {
-      console.error("Error retrieving location data:", error);
-    }
-  };
+  // const retrieveLocationData = async () => {
+  //   try {
+  //     const data = await AsyncStorage.getItem("locationQueue");
+  //     if (data) {
+  //       setLocationData(JSON.parse(data));
+  //       await AsyncStorage.removeItem("locationQueue");
+  //       setQueueCount(0); // Update queue count
+  //     }
+  //   } catch (error) {
+  //     console.error("Error retrieving location data:", error);
+  //   }
+  // };
 
   const handleStart = async () => {
     if (configured) {
       setAllData([]);
-      await AsyncStorage.removeItem("locationQueue");
-      getLocation();
       setIsRunning(true);
       console.log("Started");
     } else {
@@ -159,56 +179,51 @@ const LocationScreen = () => {
       }); // Gets the current location with high accuracy
       setLocation(location); // Sets the location state with the obtained location data
       console.log(location);
-      const isoString = new Date().toISOString();
-      const [da, ti] = isoString.split("T");
-      const time = `${da} ${ti}`; // Formats the current date and time
 
-      await checkSignal(); // Checks the cellular signal state
+      const date = new Date();
+      // Convert to IST by adding 5 hours and 30 minutes
+      const istOffset = 5 * 60 * 60 * 1000 + 30 * 60 * 1000;
+      const istDate = new Date(date.getTime() + istOffset);
+
+      // Format the date and time
+      const [da, ti] = istDate.toISOString().split("T");
+      const time = `${da} ${ti.split(".")[0]}`;
 
       const currentLocationData = {
         time: time,
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
       };
-      // encryption(currentLocationData);
-
       setAllData((prevData) => [...prevData, currentLocationData]);
+      const es = encryption(currentLocationData);
+      console.log(es); // Log the encrypted data object
 
-      if (simState != null) {
-        await retrieveLocationData(); // If the device has a signal, retrieves any stored location data
-        if (locationData.length > 0) {
-          console.log("Sending Stored Data");
-          // handleSend(locationData)
-          // axios
-          //   .post("http://10.10.8.157:8000/location", locationData)
-          //   .then((response) => {
-          //     console.log(
-          //       "Stored location data sent successfully:",
-          //       response.data
-          //     );
-          //     setLocationData([]); // Clear the stored location data
-          //     setQueueCount(0); // Reset the queue count
-          //   })
-          //   .catch((error) => {
-          //     console.error("Error sending stored location data:", error);
-          //   });
+      const phoneNumber = selectedNumber;
+      console.log(phoneNumber); // Log the selected phone number
+
+      const message = JSON.stringify(es);
+      console.log(message); // Log the JSON stringified encrypted data
+
+      // Access the third item in the original JSON object, not the string
+      const keys = Object.keys(es);
+      const thirdItem = es[keys[2]];
+      queue.enqueue(thirdItem);
+      console.log(queue.printQueue());
+
+      let state = await checkNetworkState(); // Checks the network state
+
+      if (state) {
+        console.log("Network is connected");
+        while (!queue.isEmpty()) {
+          const itemToBeSent = queue.dequeue();
+          handleSend(itemToBeSent);
+          setCnt(cnt + 1);
+          setLastSent(time);
         }
-        setLocationData([currentLocationData]); // Sets the location data state with the current location
-        // handleSend(locationData)
-        // axios
-        //   .post("http://10.10.8.157:8000/location", [currentLocationData])
-        //   .then((response) => {
-        //     console.log(
-        //       "Current location data sent successfully:",
-        //       response.data
-        //     );
-        //   })
-        //   .catch((error) => {
-        //     console.error("Error sending current location data:", error);
-        //   });
       } else {
-        await storeLocationData(currentLocationData); // If no signal, stores the current location data in AsyncStorage
+        console.log("No network connection, queue length:", queue.length());
       }
+      getQueueCount();
     } catch (error) {
       console.error("Error getting location:", error);
     }
@@ -291,7 +306,10 @@ const LocationScreen = () => {
     // Create the string with the desired format
     const result = `${dayHex}-${monthHex}-${yearHex} ${hoursHex}:${minutesHex}:${secondsHex} ${latitudeHex},${longitudeHex}`;
     console.log(result);
-    let encryptedString = ":000002";
+    let msgno = String(cnt).padStart(4, "0");
+    const hexmsg=parseInt(msgno).toString(16).padStart(4, "0")
+    .toUpperCase();
+    let encryptedString = ":"+hexmsg+"02";
     encryptedString =
       encryptedString +
       dayHex +
@@ -324,13 +342,14 @@ const LocationScreen = () => {
       latitude: location.coords.latitude,
       longitude: location.coords.longitude,
     };
-    console.log(currentLocationData);
+    setLastSent(time);
+    // console.log(currentLocationData);
     // Assuming encryption(currentLocationData) returns a JSON object
     const es = encryption(currentLocationData);
     console.log(es); // Log the encrypted data object
 
     const phoneNumber = selectedNumber;
-    console.log(phoneNumber); // Log the selected phone number
+    // console.log(phoneNumber); // Log the selected phone number
 
     const message = JSON.stringify(es);
     console.log(message); // Log the JSON stringified encrypted data
@@ -338,7 +357,7 @@ const LocationScreen = () => {
     // Access the third item in the original JSON object, not the string
     const keys = Object.keys(es);
     const thirdItem = es[keys[2]]; // Get the value of the third key in the original object
-    console.log(thirdItem); // Log the third item value
+    // console.log(thirdItem); // Log the third item value
 
     const url = `sms:${phoneNumber}?body=${encodeURIComponent(thirdItem)}`;
     Linking.openURL(url).catch((err) =>
@@ -346,23 +365,27 @@ const LocationScreen = () => {
     );
   };
 
-  const handleSend = async () => {
-    console.log(locationData);
-    const phoneNumber = selectedNumber;
-    // "+91 9618026156";
-    const message = JSON.stringify(locationData);
-    const url = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
+  const handleSend = async (item) => {
+    try {
+      let state = await checkNetworkState();
+      const phoneNumber = selectedNumber;
+      const message = JSON.stringify(item);
+      const url = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
 
-    checkSignal();
-    if (simState != null) {
-      Linking.openURL(url).catch((err) =>
-        console.error("Error opening SMS app:", err)
-      );
-      console.log("signal yes");
-    } else {
-      Alert.alert("NO SIGNAL");
+      if (state) {
+        Linking.openURL(url).catch((err) =>
+          console.error("Error opening SMS app:", err)
+        );
+
+        console.log("Signal available, sending message");
+      } else {
+        Alert.alert("No signal available");
+      }
+    } catch (error) {
+      console.error("Error sending message:", error);
     }
   };
+
   const handleSendAll = async () => {
     const phoneNumber = selectedNumber;
     // "+91 9618026156";
@@ -396,13 +419,20 @@ const LocationScreen = () => {
   };
 
   const savePhoneNumber = () => {
-    setSelectedNumber(phoneNumberInput);
-    setTimeInterval(timeIntervalInput);
-    if (selectedNumber != "" && timeInterval != 0) {
-      setConfigured(true);
+    if (phoneNumberInput != "---" && timeIntervalInput != "---") {
+      if (timeIntervalInput == 0) {
+        Alert.alert("Interval Time can't be 0");
+      } else {
+        setSelectedNumber(phoneNumberInput);
+        setTimeInterval(timeIntervalInput);
+        setConfigured(true);
+        ToastAndroid.show(
+          "Phone number and Time interval saved",
+          ToastAndroid.SHORT
+        );
+        setShowNumbersModal(false);
+      }
     }
-    ToastAndroid.show("Phone number saved", ToastAndroid.SHORT);
-    setShowNumbersModal(false);
   };
 
   const renderItem = ({ item }) => (
@@ -423,18 +453,42 @@ const LocationScreen = () => {
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <TextInput
-              style={styles.input}
-              onChangeText={handlePhoneNumberChange}
-              value={phoneNumberInput}
-              placeholder="Enter phone number"
-            />
-            <TextInput
-              style={styles.input}
-              onChangeText={handleTimeInterval}
-              value={timeIntervalInput}
-              placeholder="Enter Time in minutes"
-            />
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-around",
+                alignItems: "center",
+                padding: 10,
+                margin: 10,
+              }}
+            >
+              <Text style={{ fontSize: 16 }}>Phn. No.</Text>
+              <TextInput
+                style={styles.input}
+                onChangeText={handlePhoneNumberChange}
+                value={phoneNumberInput}
+                placeholder="Enter phone number"
+              />
+            </View>
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-around",
+                alignItems: "center",
+                padding: 10,
+                margin: 10,
+                marginTop: -10,
+                marginBottom: -10,
+              }}
+            >
+              <Text style={{ fontSize: 16 }}>Interval Time</Text>
+              <TextInput
+                style={styles.input}
+                onChangeText={handleTimeInterval}
+                value={timeIntervalInput}
+                placeholder="Enter Time in minutes"
+              />
+            </View>
             <View
               style={{ flexDirection: "row", justifyContent: "space-evenly" }}
             >
@@ -474,20 +528,40 @@ const LocationScreen = () => {
         </View>
       </View>
       <View style={styles.taskbar1}>
-        {selectedNumber ? (
-          <Text style={{ color: "white" }}>Configure ID: {selectedNumber}</Text>
-        ) : null}
-        <Text style={styles.taskbarText}> </Text>
-        {timeInterval ? (
-          <Text style={{ color: "white" }}>Time : {timeInterval} min</Text>
-        ) : null}
+        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+          <Text style={{ color: "white" }}>Server ID : {selectedNumber}</Text>
+          <Text style={{ color: "white" }}>
+            Time Interval : {timeInterval} min
+          </Text>
+        </View>
+        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+          <View style={{ flexDirection: "row" }}>
+            <View>
+              <Text style={{ color: "white" }}>Status : </Text>
+            </View>
+            <View>
+              <Text style={[{ color: isRunning ? "green" : "red" }]}>
+                {isRunning ? "Running" : "Stopped"}
+              </Text>
+            </View>
+          </View>
+          <View>
+            <Text style={{ color: "white" }}>Queue Count : {queueCount}</Text>
+          </View>
+        </View>
+        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+          {lastSent ? (
+            <Text style={{ color: "white" }}>
+              Last Sent Message : {lastSent}
+            </Text>
+          ) : null}
+        </View>
         {/* <TouchableOpacity onPress={handleLogout}>
           <Text style={styles.logoutButton}>Logout</Text>
         </TouchableOpacity>timeInterval */}
       </View>
-
       <View style={styles.container}>
-        <View style={styles.statusContainer}>
+        {/* <View style={styles.statusContainer}>
           <View style={{ marginHorizontal: 10 }}>
             <Text style={styles.statusText}>Status:</Text>
           </View>
@@ -504,16 +578,22 @@ const LocationScreen = () => {
           <View style={{ marginHorizontal: 10 }}>
             <Text style={styles.statusText}>Queue Count: {queueCount}</Text>
           </View>
-        </View>
-        <View>
+        </View> */}
+        {/* <View>
           {location && (
             <View style={styles.coordinatesContainer}>
               <Text>Latitude: {location.coords.latitude}</Text>
               <Text>Longitude: {location.coords.longitude}</Text>
             </View>
           )}
-        </View>
-        <View style={{ flexDirection: "row", justifyContent: "space-evenly" }}>
+        </View> */}
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "space-evenly",
+            marginTop: -300,
+          }}
+        >
           <View style={styles.buttonContainer}>
             <Button title="Configure" onPress={openNumbersModal} />
           </View>
@@ -544,9 +624,9 @@ const LocationScreen = () => {
 const styles = StyleSheet.create({
   taskbar1: {
     backgroundColor: "#2196F3",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: "column",
+    // justifyContent: "space-between",
+    // alignItems: "center",
     paddingVertical: 10,
     paddingHorizontal: 20,
   },
@@ -568,6 +648,7 @@ const styles = StyleSheet.create({
     flex: 1,
     marginBottom: 10,
     backgroundColor: "#fff",
+    marginTop: -300,
   },
   container: {
     flex: 1,
@@ -625,8 +706,8 @@ const styles = StyleSheet.create({
     margin: 10,
   },
   image1: {
-    marginTop: 30,
-    height: 20,
+    marginTop: 38,
+    height: 22,
     width: 180,
   },
   modalContainer: {
