@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -23,26 +23,31 @@ import * as TaskManager from "expo-task-manager"; // Import TaskManager for back
 const img = require("./nfc.png");
 const img1 = require("./n.png");
 const img2 = require("./gov.png");
-
-const LOCATION_TASK_NAME = "background-location-task";
+import { stop_pass } from "../assets/constants";
 
 const LocationScreen = () => {
   const [location, setLocation] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
-  const [locationData, setLocationData] = useState([]);
+  // const [locationData, setLocationData] = useState([]);
   const [networkState, setNetworkState] = useState(true);
   const [queueCount, setQueueCount] = useState("0"); // Add state for queue count
   const [showNumbersModal, setShowNumbersModal] = useState(false);
   const [selectedNumber, setSelectedNumber] = useState("---"); // State to store selected number
   const [phoneNumberInput, setPhoneNumberInput] = useState(""); // State to store phone number input
   const [allData, setAllData] = useState([]);
+  const [sentData, setSentData] = useState([]);
   const [timeIntervalInput, setTimeIntervalInput] = useState();
   const [timeInterval, setTimeInterval] = useState("---");
   const [configured, setConfigured] = useState(false);
   const [lastSent, setLastSent] = useState("---");
-  const [cnt, setCnt] = useState(1);
+  const [cnt, setCnt] = useState("0");
+  const [passwordInput, setPassWordInput] = useState("");
+  const [showPasswordsModal, setPasswordsModal] = useState(false);
+  let counter = 0;
+
   useEffect(() => {
     getQueueCount();
+    // msgCount();
     // getLocation();
     // getQueueCount(); // Get initial queue count
   }, []);
@@ -126,6 +131,16 @@ const LocationScreen = () => {
     }
   };
 
+  const msgCount = async () => {
+    try {
+      console.log(cnt);
+      setCnt(sentData.length);
+      console.log(cnt);
+    } catch (error) {
+      console.error("Error getting msg count:", error);
+    }
+  };
+
   // const storeLocationData = async (data) => {
   //   try {
   //     const existingData = await AsyncStorage.getItem("locationQueue");
@@ -157,6 +172,7 @@ const LocationScreen = () => {
   const handleStart = async () => {
     if (configured) {
       setAllData([]);
+      setSentData([]);
       setIsRunning(true);
       console.log("Started");
     } else {
@@ -217,7 +233,6 @@ const LocationScreen = () => {
         while (!queue.isEmpty()) {
           const itemToBeSent = queue.dequeue();
           handleSend(itemToBeSent);
-          setCnt(cnt + 1);
           setLastSent(time);
         }
       } else {
@@ -234,15 +249,16 @@ const LocationScreen = () => {
     if (isRunning) {
       interval = setInterval(() => {
         getLocation(); // Calls getLocation function at the specified interval
-      }, 60 * 1000 * timeInterval); // Set interval to 5 seconds
+      }, 60 * 1000 * timeInterval);
     }
-
-    return () => clearInterval(interval); // Clears the interval when the component unmounts or isRunning changes
+    return () => clearInterval(interval);
   }, [isRunning]);
 
   const handleStop = async () => {
     setIsRunning(false);
+    setCnt(0);
     console.log("Stopped");
+    counter=0;
     // console.log(locationData);
     // axios
     //   .post("http://10.10.8.157:8000/location", locationData)
@@ -306,10 +322,12 @@ const LocationScreen = () => {
     // Create the string with the desired format
     const result = `${dayHex}-${monthHex}-${yearHex} ${hoursHex}:${minutesHex}:${secondsHex} ${latitudeHex},${longitudeHex}`;
     console.log(result);
-    let msgno = String(cnt).padStart(4, "0");
-    const hexmsg=parseInt(msgno).toString(16).padStart(4, "0")
-    .toUpperCase();
-    let encryptedString = ":"+hexmsg+"02";
+    console.log(cnt);
+    console.log("#");
+    let msgno = String(counter).padStart(4, "0");
+    console.log(counter);
+    const hexmsg = parseInt(msgno).toString(16).padStart(4, "0").toUpperCase();
+    let encryptedString = ":" + hexmsg + "02";
     encryptedString =
       encryptedString +
       dayHex +
@@ -324,7 +342,7 @@ const LocationScreen = () => {
       "45" +
       "00000000";
     console.log(encryptedString);
-    console.log("1");
+    counter = counter + 1;
     return encryptedString;
   };
 
@@ -364,19 +382,32 @@ const LocationScreen = () => {
       console.error("Error opening SMS app:", err)
     );
   };
+  useEffect(() => {
+    setCnt(sentData.length.toString()); // Update cnt whenever sentData changes
+    console.log(cnt);
+    console.log("@");
+  }, [sentData]);
 
   const handleSend = async (item) => {
     try {
       let state = await checkNetworkState();
       const phoneNumber = selectedNumber;
+      // console.log(item)
       const message = JSON.stringify(item);
-      const url = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
+      // console.log(message);
+      const url = `sms:${phoneNumber}?body=${encodeURIComponent(item)}`;
+      setSentData((prevData) => [...prevData, message]);
+      // Increment the serial number (cnt)
+      // setCnt((prevCnt) => parseInt(prevCnt) + 1);
+      // msgCount(); // Update the message count
 
       if (state) {
-        Linking.openURL(url).catch((err) =>
-          console.error("Error opening SMS app:", err)
-        );
-
+        Linking.openURL(url)
+          .then(() => {
+            console.log(`Sending SMS to ${selectedNumber}: ${message}`);
+            // msgCount();
+          })
+          .catch((err) => console.error("Error opening SMS app:", err));
         console.log("Signal available, sending message");
       } else {
         Alert.alert("No signal available");
@@ -403,9 +434,22 @@ const LocationScreen = () => {
   };
 
   const openNumbersModal = () => {
-    setShowNumbersModal(true);
+    if (isRunning) {
+      ToastAndroid.show(
+        "You need to stop the process to change configuration",
+        ToastAndroid.SHORT
+      );
+    } else {
+      setShowNumbersModal(true);
+    }
+  };
+  const openPasswordsModal = () => {
+    setPasswordsModal(true);
   };
 
+  const closePasswordsModal = () => {
+    setPasswordsModal(false);
+  };
   const closeNumbersModal = () => {
     setShowNumbersModal(false);
   };
@@ -418,10 +462,16 @@ const LocationScreen = () => {
     setTimeIntervalInput(text);
   };
 
+  const handlePasswordChange = (text) => {
+    setPassWordInput(text);
+  };
+
   const savePhoneNumber = () => {
     if (phoneNumberInput != "---" && timeIntervalInput != "---") {
       if (timeIntervalInput == 0) {
         Alert.alert("Interval Time can't be 0");
+      } else if (phoneNumberInput.length != 10) {
+        Alert.alert("Phone Number not valid");
       } else {
         setSelectedNumber(phoneNumberInput);
         setTimeInterval(timeIntervalInput);
@@ -431,6 +481,25 @@ const LocationScreen = () => {
           ToastAndroid.SHORT
         );
         setShowNumbersModal(false);
+      }
+    }
+  };
+
+  const verifyPassword = () => {
+    if (passwordInput === stop_pass) {
+      ToastAndroid.show(
+        "Password Verified the process will be stopped",
+        ToastAndroid.SHORT
+      );
+      setPassWordInput("")
+      setPasswordsModal(false);
+      handleStop();
+    } else {
+      {
+        ToastAndroid.show(
+          "Password Verified the process will be stopped",
+          ToastAndroid.SHORT
+        );
       }
     }
   };
@@ -462,32 +531,41 @@ const LocationScreen = () => {
                 margin: 10,
               }}
             >
-              <Text style={{ fontSize: 16 }}>Phn. No.</Text>
-              <TextInput
-                style={styles.input}
-                onChangeText={handlePhoneNumberChange}
-                value={phoneNumberInput}
-                placeholder="Enter phone number"
-              />
+              <View>
+                <Text style={{ fontSize: 16 }}>Phn. No.:</Text>
+              </View>
+              <View>
+                <TextInput
+                  style={styles.input}
+                  onChangeText={handlePhoneNumberChange}
+                  value={phoneNumberInput}
+                  placeholder="Enter phone number"
+                />
+              </View>
             </View>
             <View
               style={{
                 flexDirection: "row",
-                justifyContent: "space-around",
+                justifyContent: "flex-start",
                 alignItems: "center",
                 padding: 10,
                 margin: 10,
                 marginTop: -10,
                 marginBottom: -10,
+                flexDirection: "row",
               }}
             >
-              <Text style={{ fontSize: 16 }}>Interval Time</Text>
-              <TextInput
-                style={styles.input}
-                onChangeText={handleTimeInterval}
-                value={timeIntervalInput}
-                placeholder="Enter Time in minutes"
-              />
+              <View>
+                <Text style={{ fontSize: 16 }}>Interval Time: </Text>
+              </View>
+              <View>
+                <TextInput
+                  style={styles.input}
+                  onChangeText={handleTimeInterval}
+                  value={timeIntervalInput}
+                  placeholder="Enter Time in minutes"
+                />
+              </View>
             </View>
             <View
               style={{ flexDirection: "row", justifyContent: "space-evenly" }}
@@ -503,6 +581,52 @@ const LocationScreen = () => {
                 <Button
                   title="Close"
                   onPress={closeNumbersModal}
+                  titleStyle={{ fontSize: 16 }}
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={showPasswordsModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={closePasswordsModal}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-around",
+                alignItems: "center",
+                padding: 10,
+                margin: 10,
+              }}
+            >
+              <Text style={{ fontSize: 16 }}>Password</Text>
+              <TextInput
+                style={styles.input}
+                onChangeText={handlePasswordChange}
+                value={passwordInput}
+                placeholder="Enter password"
+              />
+            </View>
+            <View
+              style={{ flexDirection: "row", justifyContent: "space-evenly" }}
+            >
+              <View style={styles.buttonContainer}>
+                <Button
+                  title="verify"
+                  onPress={verifyPassword}
+                  titleStyle={{ fontSize: 16 }}
+                />
+              </View>
+              <View style={styles.buttonContainer}>
+                <Button
+                  title="Close"
+                  onPress={closePasswordsModal}
                   titleStyle={{ fontSize: 16 }}
                 />
               </View>
@@ -529,32 +653,48 @@ const LocationScreen = () => {
       </View>
       <View style={styles.taskbar1}>
         <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-          <Text style={{ color: "white" }}>Server ID : {selectedNumber}</Text>
-          <Text style={{ color: "white" }}>
+          <Text style={{ color: "white", fontSize: 16 }}>
+            Server ID : {selectedNumber}
+          </Text>
+          <Text style={{ color: "white", fontSize: 16 }}>
             Time Interval : {timeInterval} min
           </Text>
         </View>
         <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
           <View style={{ flexDirection: "row" }}>
             <View>
-              <Text style={{ color: "white" }}>Status : </Text>
+              <Text style={{ color: "white", fontSize: 16 }}>Status : </Text>
             </View>
             <View>
-              <Text style={[{ color: isRunning ? "green" : "red" }]}>
+              <Text
+                style={[
+                  {
+                    color: isRunning ? "yellow" : "red",
+                    fontSize: 16,
+                  },
+                ]}
+              >
                 {isRunning ? "Running" : "Stopped"}
               </Text>
             </View>
           </View>
           <View>
-            <Text style={{ color: "white" }}>Queue Count : {queueCount}</Text>
+            <Text style={{ color: "white", fontSize: 16 }}>
+              Queue Count : {queueCount}
+            </Text>
           </View>
         </View>
         <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-          {lastSent ? (
-            <Text style={{ color: "white" }}>
+          <View style={{ flexDirection: "row" }}>
+            <Text style={{ color: "white", fontSize: 12, marginTop: 3 }}>
               Last Sent Message : {lastSent}
             </Text>
-          ) : null}
+          </View>
+          <View>
+            <Text style={{ color: "white", fontSize: 16 }}>
+              Serial Number : {cnt}
+            </Text>
+          </View>
         </View>
         {/* <TouchableOpacity onPress={handleLogout}>
           <Text style={styles.logoutButton}>Logout</Text>
@@ -600,7 +740,7 @@ const LocationScreen = () => {
           <View style={styles.buttonContainer}>
             <Button
               title={isRunning ? "Stop" : "Start"}
-              onPress={isRunning ? handleStop : handleStart}
+              onPress={isRunning ? openPasswordsModal : handleStart}
             />
           </View>
           <View style={styles.buttonContainer}>
@@ -677,10 +817,12 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   buttonContainer: {
-    marginTop: 10,
+    margin: 10,
     padding: 10,
     borderRadius: 10,
-    width: "30%",
+    width: "auto",
+    minWidth: "30%",
+
   },
   item: {
     padding: 10,
@@ -712,6 +854,8 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     flex: 1,
+    width: "auto",
+    height: "auto",
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "rgba(0, 0, 0, 0.5)",
@@ -721,7 +865,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderRadius: 10,
     width: "80%",
-    maxHeight: "40%",
+    maxHeight: "50%",
   },
   input: {
     height: 40,
